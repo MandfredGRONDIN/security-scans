@@ -52,12 +52,18 @@ jobs:
             -daemon -host 0.0.0.0 -port 8090 -config api.disablekey=true
           sleep 20
 
-      - name: Run ZAP scan
+      - name: Run ZAP scan via API
         run: |
-          docker exec zap zap-cli -p 8090 open-url http://host.docker.internal:3000
-          docker exec zap zap-cli -p 8090 spider http://host.docker.internal:3000
-          docker exec zap zap-cli -p 8090 active-scan http://host.docker.internal:3000
-          docker exec zap zap-cli -p 8090 report -o zap_report.html -f html
+          # Spider (exploration du site)
+          curl "http://localhost:8090/JSON/spider/action/scan/?url=http://host.docker.internal:3000&recurse=true"
+          sleep 20
+
+          # Active Scan (attaque)
+          curl "http://localhost:8090/JSON/ascan/action/scan/?url=http://host.docker.internal:3000"
+          sleep 30
+
+          # Récupération du rapport HTML
+          curl "http://localhost:8090/OTHER/core/other/htmlreport/" -o zap_report.html
 
       - name: Upload ZAP report
         uses: actions/upload-artifact@v4
