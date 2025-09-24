@@ -56,11 +56,11 @@ jobs:
       - name: Run ZAP Spider and Active Scan
         run: |
           ZAP_URL="http://localhost:8090"
-          JUICE_SHOP_URL="http://host.docker.internal:3000"
-
+          JUICE_SHOP_URL="http://juice-shop:3000"
+      
           echo "🚀 Starting Spider..."
           spider_id=$(curl -s "$ZAP_URL/JSON/spider/action/scan/?url=$JUICE_SHOP_URL&recurse=true" | jq -r .scan)
-
+      
           status=0
           while [ "$status" != "100" ]; do
             sleep 5
@@ -68,10 +68,10 @@ jobs:
             echo "Spider progress: $status%"
           done
           echo "✅ Spider finished."
-
+      
           echo "🚀 Starting Active Scan..."
           scan_id=$(curl -s "$ZAP_URL/JSON/ascan/action/scan/?url=$JUICE_SHOP_URL" | jq -r .scan)
-
+      
           status=0
           while [ "$status" != "100" ]; do
             sleep 10
@@ -79,9 +79,10 @@ jobs:
             echo "Active Scan progress: $status%"
           done
           echo "✅ Active Scan finished."
-
+      
           echo "📄 Generating HTML report..."
           curl -s "$ZAP_URL/OTHER/core/other/htmlreport/" -o zap_report.html
+
 
       - name: Upload ZAP report
         uses: actions/upload-artifact@v4
