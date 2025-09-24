@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl jq
+          sudo apt-get install -y curl jq docker.io
 
       - name: Install Trivy
         run: |
@@ -45,7 +45,7 @@ jobs:
           docker run -d --name zap -p 8090:8090 zaproxy/zap-stable:latest zap.sh -daemon -host 0.0.0.0 -port 8090 -config api.disablekey=true
           echo "⏳ Waiting for ZAP to start..."
           for i in {1..60}; do
-            if curl -s http://localhost:8090/ -o /dev/null; then
+            if curl -s http://localhost:8090/JSON/core/view/version/ -o /dev/null; then
               echo "✅ ZAP is ready!"
               break
             fi
@@ -57,10 +57,14 @@ jobs:
         run: |
           ZAP_URL="http://localhost:8090"
           JUICE_SHOP_URL="http://juice-shop:3000"
-      
+
+          # Test connectivity
+          echo "Testing connectivity to Juice Shop..."
+          curl -I $JUICE_SHOP_URL
+
+          # Spider scan
           echo "🚀 Starting Spider..."
           spider_id=$(curl -s "$ZAP_URL/JSON/spider/action/scan/?url=$JUICE_SHOP_URL&recurse=true" | jq -r .scan)
-      
           status=0
           while [ "$status" != "100" ]; do
             sleep 5
@@ -68,10 +72,10 @@ jobs:
             echo "Spider progress: $status%"
           done
           echo "✅ Spider finished."
-      
+
+          # Active scan
           echo "🚀 Starting Active Scan..."
           scan_id=$(curl -s "$ZAP_URL/JSON/ascan/action/scan/?url=$JUICE_SHOP_URL" | jq -r .scan)
-      
           status=0
           while [ "$status" != "100" ]; do
             sleep 10
@@ -79,10 +83,10 @@ jobs:
             echo "Active Scan progress: $status%"
           done
           echo "✅ Active Scan finished."
-      
+
+          # Generate HTML report
           echo "📄 Generating HTML report..."
           curl -s "$ZAP_URL/OTHER/core/other/htmlreport/" -o zap_report.html
-
 
       - name: Upload ZAP report
         uses: actions/upload-artifact@v4
