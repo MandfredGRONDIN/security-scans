@@ -17,20 +17,13 @@ jobs:
         ports:
           - 3000:3000
 
-      zap:
-        image: zaproxy/zap-stable:latest
-        ports:
-          - 8090:8090
-        options: >-
-          --entrypoint zap.sh -daemon -host 0.0.0.0 -port 8090 -config api.disablekey=true
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y curl jq
+          sudo apt-get update && sudo apt-get install -y curl jq docker.io
 
       - name: Install Trivy
         run: |
@@ -46,22 +39,23 @@ jobs:
         run: |
           trivy fs --exit-code 1 --severity HIGH,CRITICAL . || true
 
-      - name: Wait for ZAP to be ready
+      - name: Start ZAP container
         run: |
-          ZAP_URL="http://zap:8090"
+          docker run -d --name zap -p 8090:8090 zaproxy/zap-stable:latest zap.sh -daemon -host 0.0.0.0 -port 8090 -config api.disablekey=true
+          echo "⏳ Waiting for ZAP to start..."
           for i in {1..60}; do
-            if curl -s "$ZAP_URL" -o /dev/null; then
+            if curl -s http://localhost:8090/ -o /dev/null; then
               echo "✅ ZAP is ready!"
               break
             fi
-            echo "ZAP not ready yet, waiting..."
+            echo "ZAP not ready yet, retrying..."
             sleep 5
           done
 
       - name: Run ZAP Spider and Active Scan
         run: |
-          ZAP_URL="http://zap:8090"
-          JUICE_SHOP_URL="http://juice-shop:3000"
+          ZAP_URL="http://localhost:8090"
+          JUICE_SHOP_URL="http://host.docker.internal:3000"
 
           echo "🚀 Starting Spider..."
           spider_id=$(curl -s "$ZAP_URL/JSON/spider/action/scan/?url=$JUICE_SHOP_URL&recurse=true" | jq -r .scan)
