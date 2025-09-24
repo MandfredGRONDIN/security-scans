@@ -1,0 +1,54 @@
+name: Security Scans (SAST + DAST)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  security:
+    name: Security Scans
+    runs-on: ubuntu-latest
+    services:
+      juice-shop:
+        image: bkimminich/juice-shop:latest
+        ports:
+          - 3000:3000
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get update && sudo apt-get install -y wget
+          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.42.1_Linux-64bit.deb
+          sudo dpkg -i trivy_0.42.1_Linux-64bit.deb
+
+      - name: Scan Juice Shop image
+        run: |
+          docker pull bkimminich/juice-shop:latest
+          trivy image --exit-code 1 --severity HIGH,CRITICAL bkimminich/juice-shop:latest
+
+      - name: Scan code repository (optionnel)
+        run: |
+          trivy fs --exit-code 1 --severity HIGH,CRITICAL .
+
+      - name: Start ZAP container
+        run: |
+          docker run -d --name zap -p 8090:8090 owasp/zap2docker-stable zap.sh -daemon -host 0.0.0.0 -port 8090 -config api.disablekey=true
+          sleep 20
+
+      - name: Run ZAP scan
+        run: |
+          docker exec zap zap-cli -p 8090 open-url http://host.docker.internal:3000
+          docker exec zap zap-cli -p 8090 spider http://host.docker.internal:3000
+          docker exec zap zap-cli -p 8090 active-scan http://host.docker.internal:3000
+          docker exec zap zap-cli -p 8090 report -o zap_report.html -f html
+
+      - name: Upload ZAP report
+        uses: actions/upload-artifact@v3
+        with:
+          name: zap-report
+          path: zap_report.html
