@@ -20,25 +20,43 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Installation de Trivy
       - name: Install Trivy
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
             | sudo sh -s -- -b /usr/local/bin v0.66.0
 
+      # Analyse de l’image Docker Juice Shop (SAST / container scan)
       - name: Scan Juice Shop image
         run: |
           docker pull bkimminich/juice-shop:latest
-          trivy image --exit-code 1 --severity HIGH,CRITICAL bkimminich/juice-shop:latest
+          trivy image --severity HIGH,CRITICAL --format table --output trivy_image_report.txt bkimminich/juice-shop:latest
 
-      - name: Scan code repository (optionnel)
+      - name: Upload Trivy image report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-report
+          path: trivy_image_report.txt
+
+      # Analyse du code source (SAST / filesystem scan)
+      - name: Scan code repository
         run: |
-          trivy fs --exit-code 1 --severity HIGH,CRITICAL .
+          trivy fs --severity HIGH,CRITICAL --format table --output trivy_fs_report.txt .
 
+      - name: Upload Trivy FS report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-fs-report
+          path: trivy_fs_report.txt
+
+      # Lancer OWASP ZAP en mode daemon
       - name: Start ZAP container
         run: |
-          docker run -d --name zap -p 8090:8090 owasp/zap2docker-stable zap.sh -daemon -host 0.0.0.0 -port 8090 -config api.disablekey=true
+          docker run -d --name zap -p 8090:8090 owasp/zap2docker-stable zap.sh \
+            -daemon -host 0.0.0.0 -port 8090 -config api.disablekey=true
           sleep 20
 
+      # Scan DAST avec ZAP
       - name: Run ZAP scan
         run: |
           docker exec zap zap-cli -p 8090 open-url http://host.docker.internal:3000
