@@ -20,11 +20,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Installer jq pour parser JSON
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # Installation de Trivy
       - name: Install Trivy
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
             | sudo sh -s -- -b /usr/local/bin v0.66.0
 
+      # Analyse de l’image Docker Juice Shop
       - name: Scan Juice Shop image
         run: |
           docker pull bkimminich/juice-shop:latest
@@ -36,6 +42,7 @@ jobs:
           name: trivy-image-report
           path: trivy_image_report.txt
 
+      # Analyse du code source 
       - name: Scan code repository
         run: |
           trivy fs --severity HIGH,CRITICAL --format table --output trivy_fs_report.txt .
@@ -46,24 +53,51 @@ jobs:
           name: trivy-fs-report
           path: trivy_fs_report.txt
 
+      # Lancer OWASP ZAP en mode daemon
       - name: Start ZAP container
         run: |
           docker run -d --name zap -p 8090:8090 zaproxy/zap-stable zap.sh \
             -daemon -host 0.0.0.0 -port 8090 -config api.disablekey=true
-          sleep 20
 
+      # Utiliser l'API REST de ZAP pour lancer Spider + Active Scan et générer le rapport HTML
       - name: Run ZAP scan via API
         run: |
-          # Spider (exploration du site)
-          curl "http://localhost:8090/JSON/spider/action/scan/?url=http://host.docker.internal:3000&recurse=true"
-          sleep 20
+          echo "⏳ Attente que ZAP soit prêt..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8090/ -o /dev/null; then
+              echo "✅ ZAP est prêt !"
+              break
+            fi
+            echo "ZAP pas encore prêt, nouvelle tentative..."
+            sleep 5
+          done
 
-          # Active Scan (attaque)
-          curl "http://localhost:8090/JSON/ascan/action/scan/?url=http://host.docker.internal:3000"
-          sleep 30
+          echo "🚀 Lancement du Spider"
+          spider_id=$(curl -s "http://localhost:8090/JSON/spider/action/scan/?url=http://host.docker.internal:3000&recurse=true" | jq -r .scan)
 
-          # Récupération du rapport HTML
-          curl "http://localhost:8090/OTHER/core/other/htmlreport/" -o zap_report.html
+          # Attendre la fin du Spider
+          status=0
+          while [ "$status" != "100" ]; do
+            sleep 5
+            status=$(curl -s "http://localhost:8090/JSON/spider/view/status/?scanId=$spider_id" | jq -r .status)
+            echo "Spider en cours... $status%"
+          done
+          echo "✅ Spider terminé."
+
+          echo "🚀 Lancement de l'Active Scan"
+          scan_id=$(curl -s "http://localhost:8090/JSON/ascan/action/scan/?url=http://host.docker.internal:3000" | jq -r .scan)
+
+          # Attendre la fin de l'Active Scan
+          status=0
+          while [ "$status" != "100" ]; do
+            sleep 10
+            status=$(curl -s "http://localhost:8090/JSON/ascan/view/status/?scanId=$scan_id" | jq -r .status)
+            echo "Active Scan en cours... $status%"
+          done
+          echo "✅ Active Scan terminé."
+
+          echo "📄 Génération du rapport HTML"
+          curl -s "http://localhost:8090/OTHER/core/other/htmlreport/" -o zap_report.html
 
       - name: Upload ZAP report
         uses: actions/upload-artifact@v4
